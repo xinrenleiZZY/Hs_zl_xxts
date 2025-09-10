@@ -62,12 +62,26 @@ def send_email_reminder(sender_email, sender_password, smtp_server, smtp_port,
         msg['To'] = receiver_email
         msg['Date'] = formatdate()
 
-        # 连接服务器（587端口需用TLS加密）
-        context = ssl.create_default_context()  # 安全上下文
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls(context=context)  # 启用TLS加密（关键步骤）
-            server.login(sender_email, sender_password)  # 登录（password为授权码）
-            server.send_message(msg)  # 发送邮件
+        # # 连接服务器（587端口需用TLS加密）
+        # context = ssl.create_default_context()  # 安全上下文
+        # with smtplib.SMTP(smtp_server, smtp_port) as server:
+        #     server.starttls(context=context)  # 启用TLS加密（关键步骤）
+        #     server.login(sender_email, sender_password)  # 登录（password为授权码）
+        #     server.send_message(msg)  # 发送邮件
+        # 修正：根据端口选择加密方式（支持465和587）
+        
+        context = ssl.create_default_context()
+        if smtp_port == 465:
+            # 465端口使用SSL直接连接
+            with smtplib.SMTP_SSL(smtp_server, smtp_port, context=context) as server:
+                server.login(sender_email, sender_password)
+                server.send_message(msg)
+        else:
+            # 587端口使用STARTTLS加密
+            with smtplib.SMTP(smtp_server, smtp_port, timeout=10) as server:
+                server.starttls(context=context)  # 启用TLS加密
+                server.login(sender_email, sender_password)
+                server.send_message(msg)
 
         return True, "邮件发送成功"
     except smtplib.SMTPAuthenticationError:
