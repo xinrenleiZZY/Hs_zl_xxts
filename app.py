@@ -69,7 +69,7 @@ def send_email_reminder(sender_email, sender_password, smtp_server, smtp_port,
         #     server.login(sender_email, sender_password)  # 登录（password为授权码）
         #     server.send_message(msg)  # 发送邮件
         # 修正：根据端口选择加密方式（支持465和587）
-        
+
         context = ssl.create_default_context()
         if smtp_port == 465:
             # 465端口使用SSL直接连接
@@ -121,9 +121,9 @@ with st.sidebar:
     st.info(f"上次数据上传时间：\n{st.session_state.last_upload_time}")
 
     try:
-        server = smtplib.SMTP('smtp.example.com', 587)
+        server = smtplib.SMTP('smtp.qq.com', 587)
         server.starttls()
-        server.login('your_email', 'your_password')
+        server.login('2787326121@qq.com', 'tpxmjohogukbddch')
         # 发送邮件代码
         server.quit()
     except SMTPException as e:
