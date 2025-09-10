@@ -6,5 +6,5 @@ pytz==2024.1
 six==1.16.0
 schedule==1.2.0
 aliyun-python-sdk-core-v3==2.13.33
-openpyxl
+openpyxl==3.1.5
 aliyun-python-sdk-dysmsapi==2.1.2  # 最新可用版本

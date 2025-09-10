@@ -120,14 +120,6 @@ with st.sidebar:
     st.divider()
     st.info(f"上次数据上传时间：\n{st.session_state.last_upload_time}")
 
-    try:
-        server = smtplib.SMTP('smtp.qq.com', 587)
-        server.starttls()
-        server.login('2787326121@qq.com', 'tpxmjohogukbddch')
-        # 发送邮件代码
-        server.quit()
-    except SMTPException as e:
-        print(f"发送失败：{str(e)}")  # 打印具体错误信息
 # 上传Excel文件（覆盖旧数据）
 st.subheader("上传专利数据")
 uploaded_file = st.file_uploader(
