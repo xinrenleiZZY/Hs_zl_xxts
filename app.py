@@ -177,9 +177,11 @@ def auto_send_reminders():
     if last_sent is not None:
         time_diff = now - last_sent
         if time_diff < timedelta(hours=24):
-            remaining_hours = 24 - (time_diff.total_seconds() / 3600)
-            return True, f"邮件已在24小时内发送，下次可发送时间：{last_sent + timedelta(hours=24):%Y-%m-%d %H:%M}"
-        
+            remaining_seconds = (timedelta(hours=24) - time_diff).total_seconds()
+            remaining_hours = int(remaining_seconds // 3600)
+            remaining_minutes = int((remaining_seconds % 3600) // 60)
+            return True, f"邮件已在24小时内发送，下次可发送时间：{last_sent + timedelta(hours=24):%Y-%m-%d %H:%M}（剩余{remaining_hours}小时{remaining_minutes}分钟）"
+    
     # 处理数据
     df = st.session_state.patent_data.copy()
     today = datetime.today().date()
@@ -383,13 +385,22 @@ else:
 
 # 页面加载时自动发送提醒邮件
 if st.session_state.email_config["email_enabled"]:
-    with st.spinner("正在检查并发送提醒邮件..."):
-        result, msg = auto_send_reminders()
-        if result:
-            st.success(f"邮件提醒检查完成：{msg}")
-        else:
-            st.info(f"邮件提醒检查：{msg}")
-
+    # 只有当距离上次发送超过24小时，才显示发送中状态，否则仅提示剩余时间
+    now = datetime.now()
+    last_sent = st.session_state.last_email_sent_time
+    if last_sent is None or (now - last_sent) >= timedelta(hours=24):
+        with st.spinner("正在检查并发送提醒邮件..."):
+            result, msg = auto_send_reminders()
+            if result:
+                st.success(f"邮件提醒检查完成：{msg}")
+            else:
+                st.info(f"邮件提醒检查：{msg}")
+    else:
+        time_diff = now - last_sent
+        remaining_seconds = (timedelta(hours=24) - time_diff).total_seconds()
+        remaining_hours = int(remaining_seconds // 3600)
+        remaining_minutes = int((remaining_seconds % 3600) // 60)
+        st.info(f"邮件提醒功能已启用，距离下次发送还有{remaining_hours}小时{remaining_minutes}分钟")
 # 自动刷新功能
 if st.session_state.auto_refresh:
     st.markdown(
