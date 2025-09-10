@@ -1,0 +1,9 @@
+streamlit==1.35.0
+pandas==2.2.2
+numpy==1.26.4
+python-dateutil==2.9.0.post0
+pytz==2024.1
+six==1.16.0
+schedule==1.2.0
+aliyun-python-sdk-core-v3==2.13.33
+aliyun-python-sdk-dysmsapi==2.1.2  # 最新可用版本
