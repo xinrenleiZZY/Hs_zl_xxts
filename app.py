@@ -206,8 +206,15 @@ with st.sidebar:
     # 自动刷新设置
     st.subheader("自动刷新")
     st.session_state.auto_refresh = st.checkbox("启用页面自动刷新", value=True)
-    refresh_interval = st.slider("刷新间隔（分钟）", 1, 60, 10)
-    
+    # refresh_interval = st.slider("刷新间隔（分钟）", 1, 60, 10)
+    # 调整滑块范围：支持1-1440分钟（1440分钟=24小时），默认24小时
+    refresh_interval = st.slider(
+        "刷新间隔（分钟）", 
+        min_value=1, 
+        max_value=1440,  # 最大支持24小时
+        value=1440,      # 默认24小时
+        help="1440分钟 = 24小时"  # 增加说明提示
+    )
     # 邮件提醒设置
     st.subheader("邮件提醒设置")
     with st.expander("配置邮件参数", expanded=False):
