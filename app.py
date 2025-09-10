@@ -34,6 +34,9 @@ if 'auto_refresh' not in st.session_state:
     st.session_state.auto_refresh = True  # 自动刷新开关
 if 'reminder_days' not in st.session_state:
     st.session_state.reminder_days = 15  # 提醒提前天数默认值
+# 新增：邮件发送时间记录
+if 'last_email_sent_time' not in st.session_state:
+    st.session_state.last_email_sent_time = None  # 上次邮件发送时间
 # 邮箱配置会话状态
 if 'email_config' not in st.session_state:
     st.session_state.email_config = {
@@ -64,6 +67,9 @@ def load_persistent_data():
                 # 恢复提醒天数设置
                 if 'reminder_days' in data:
                     st.session_state.reminder_days = data['reminder_days']
+                # 新增：恢复上次邮件发送时间
+                if 'last_email_sent_time' in data:
+                    st.session_state.last_email_sent_time = data['last_email_sent_time']
         except Exception as e:
             st.warning(f"加载数据失败，使用默认值：{str(e)}")
 
@@ -74,7 +80,8 @@ def save_persistent_data():
             'patent_data': st.session_state.patent_data,
             'last_upload_time': st.session_state.last_upload_time,
             'reminder_sent': st.session_state.reminder_sent,
-            'reminder_days': st.session_state.reminder_days
+            'reminder_days': st.session_state.reminder_days,
+            'last_email_sent_time': st.session_state.last_email_sent_time  # 新增
         }
         with open(DATA_FILE, 'wb') as f:
             pickle.dump(data_to_save, f)
@@ -153,7 +160,7 @@ def send_email_reminder(sender_email, sender_password, smtp_server, smtp_port,
     except Exception as e:
         return False, f"发送失败：{str(e)}"
 
-# 自动发送提醒邮件的函数
+# 自动发送提醒邮件的函数（添加了24小时间隔控制）
 def auto_send_reminders():
     if st.session_state.patent_data is None:
         return False, "无专利数据可检查"
@@ -162,6 +169,16 @@ def auto_send_reminders():
     cfg = st.session_state.email_config
     if not (cfg["email_enabled"] and cfg["sender_email"] and cfg["sender_password"] and cfg["receiver_email"]):
         return False, "邮箱配置不完整或未启用"
+    
+    # 检查是否在24小时内已发送过邮件
+    now = datetime.now()
+    last_sent = st.session_state.last_email_sent_time
+    
+    if last_sent is not None:
+        time_diff = now - last_sent
+        if time_diff < timedelta(hours=24):
+            remaining_hours = 24 - (time_diff.total_seconds() / 3600)
+            return True, f"邮件已在24小时内发送，下次可发送时间：{last_sent + timedelta(hours=24):%Y-%m-%d %H:%M}"
         
     # 处理数据
     df = st.session_state.patent_data.copy()
@@ -179,11 +196,18 @@ def auto_send_reminders():
         return True, "没有需要提醒的专利"
         
     # 发送邮件
-    return send_email_reminder(
+    success, msg = send_email_reminder(
         cfg["sender_email"], cfg["sender_password"], 
         cfg["smtp_server"], cfg["smtp_port"],
         cfg["receiver_email"], reminder_patents
     )
+    
+    # 如果发送成功，更新上次发送时间
+    if success:
+        st.session_state.last_email_sent_time = now
+        save_persistent_data()
+        
+    return success, msg
 
 # 标题
 st.title("📅 专利缴费管理系统")
@@ -206,7 +230,6 @@ with st.sidebar:
     # 自动刷新设置
     st.subheader("自动刷新")
     st.session_state.auto_refresh = st.checkbox("启用页面自动刷新", value=True)
-    # refresh_interval = st.slider("刷新间隔（分钟）", 1, 60, 10)
     # 调整滑块范围：支持1-1440分钟（1440分钟=24小时），默认24小时
     refresh_interval = st.slider(
         "刷新间隔（分钟）", 
@@ -215,6 +238,14 @@ with st.sidebar:
         value=1440,      # 默认24小时
         help="1440分钟 = 24小时"  # 增加说明提示
     )
+    
+    # 新增：显示上次邮件发送时间
+    if st.session_state.last_email_sent_time:
+        st.info(f"上次邮件发送时间：{st.session_state.last_email_sent_time:%Y-%m-%d %H:%M}")
+        next_send_time = st.session_state.last_email_sent_time + timedelta(hours=24)
+        if datetime.now() < next_send_time:
+            st.info(f"下次邮件发送时间：{next_send_time:%Y-%m-%d %H:%M}")
+    
     # 邮件提醒设置
     st.subheader("邮件提醒设置")
     with st.expander("配置邮件参数", expanded=False):
