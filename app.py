@@ -209,19 +209,21 @@ def auto_send_reminders():
         return False, "邮箱配置不完整或未启用"
     
     # 初始化计划发送时间（首次运行或过期时）
-    now1 = datetime.now()
+    now = datetime.now()
+
     if not st.session_state.next_scheduled_send or st.session_state.next_scheduled_send <= now:
         # 计算下次发送时间（当前时间 + 24小时）
-        st.session_state.next_scheduled_send = now1 + timedelta(hours=24)
+        st.session_state.next_scheduled_send = now + timedelta(hours=24)
         save_persistent_data()  # 保存计划时间
     else:
         # 未到计划时间
-        remaining = st.session_state.next_scheduled_send - now1
+        remaining = st.session_state.next_scheduled_send - now
         remaining_minutes = int(remaining.total_seconds() // 60)
         return False, f"未到发送时间，剩余 {remaining_minutes} 分钟"
     
     # 添加24小时发送间隔控制
     now = datetime.now()
+    
     last_sent = st.session_state.last_email_sent_time
     if last_sent is not None:
         time_diff = now - last_sent
@@ -491,7 +493,7 @@ if st.session_state.email_config["email_enabled"] and not st.session_state.is_fi
         time_module.sleep(5)  # 延迟5秒，确保页面加载完成
         auto_send_reminders()
     threading.Thread(target=check_and_send, daemon=True).start()
-    
+
 # 标记为非首次加载
 if st.session_state.is_first_load:
     st.session_state.is_first_load = False
