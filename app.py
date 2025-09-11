@@ -11,6 +11,7 @@ import ssl
 from smtplib import SMTPException
 import pickle  # 用于持久化存储
 import os  # 用于文件操作
+import time as time_module
 
 # 页面配置
 st.set_page_config(
@@ -39,6 +40,10 @@ if 'last_email_sent_time' not in st.session_state:
     st.session_state.last_email_sent_time = None  # 上次邮件发送时间
 if 'is_first_load' not in st.session_state:
     st.session_state.is_first_load = True  # 标记首次加载
+if 'next_scheduled_send' not in st.session_state:
+    st.session_state.next_scheduled_send = None
+
+
 # 邮箱配置会话状态
 if 'email_config' not in st.session_state:
     st.session_state.email_config = {
@@ -76,11 +81,20 @@ def load_persistent_data():
                     else:
                         st.warning("上次发送时间格式无效，已重置")
                         st.session_state.last_email_sent_time = None
+
+                if 'next_scheduled_send' in data:
+                    if isinstance(data['next_scheduled_send'], datetime):
+                        st.session_state.next_scheduled_send = data['next_scheduled_send']
+                    else:
+                        st.warning("计划发送时间格式无效，已重置")
+                        st.session_state.next_scheduled_send = datetime.now() + timedelta(hours=24)
         except Exception as e:
             st.error(f"加载数据失败：{str(e)}，已重置部分数据")
             # 仅重置有问题的时间数据，保留其他可能可用的数据
             if not isinstance(st.session_state.last_email_sent_time, datetime):
                 st.session_state.last_email_sent_time = None
+            if not st.session_state.next_scheduled_send or not isinstance(st.session_state.next_scheduled_send, datetime):
+                st.session_state.next_scheduled_send = datetime.now() + timedelta(hours=24)
 
 def save_persistent_data():
     """将session_state中的关键数据保存到本地文件，增强验证"""
@@ -95,7 +109,8 @@ def save_persistent_data():
             'last_upload_time': st.session_state.last_upload_time,
             'reminder_sent': st.session_state.reminder_sent,
             'reminder_days': st.session_state.reminder_days,
-            'last_email_sent_time': st.session_state.last_email_sent_time
+            'last_email_sent_time': st.session_state.last_email_sent_time,
+            'next_scheduled_send': st.session_state.next_scheduled_send
         }
         with open(DATA_FILE, 'wb') as f:
             pickle.dump(data_to_save, f)
@@ -193,6 +208,18 @@ def auto_send_reminders():
     if not (cfg["email_enabled"] and cfg["sender_email"] and cfg["sender_password"] and cfg["receiver_email"]):
         return False, "邮箱配置不完整或未启用"
     
+    # 初始化计划发送时间（首次运行或过期时）
+    now1 = datetime.now()
+    if not st.session_state.next_scheduled_send or st.session_state.next_scheduled_send <= now:
+        # 计算下次发送时间（当前时间 + 24小时）
+        st.session_state.next_scheduled_send = now1 + timedelta(hours=24)
+        save_persistent_data()  # 保存计划时间
+    else:
+        # 未到计划时间
+        remaining = st.session_state.next_scheduled_send - now1
+        remaining_minutes = int(remaining.total_seconds() // 60)
+        return False, f"未到发送时间，剩余 {remaining_minutes} 分钟"
+    
     # 添加24小时发送间隔控制
     now = datetime.now()
     last_sent = st.session_state.last_email_sent_time
@@ -230,6 +257,8 @@ def auto_send_reminders():
     # 如果发送成功，更新上次发送时间
     if success:
         st.session_state.last_email_sent_time = now
+        # 确保下次发送时间正确更新
+        st.session_state.next_scheduled_send = now + timedelta(hours=24)
         save_persistent_data()
         
     return success, msg
@@ -297,6 +326,16 @@ with st.sidebar:
     
     st.divider()
     st.info(f"上次数据上传时间：\n{st.session_state.last_upload_time}")
+    if st.session_state.next_scheduled_send:
+            now = datetime.now()
+            if now < st.session_state.next_scheduled_send:
+                remaining = st.session_state.next_scheduled_send - now
+                remaining_hours = int(remaining.total_seconds() // 3600)
+                remaining_minutes = int((remaining.total_seconds() % 3600) // 60)
+                st.info(f"下次计划发送时间：{st.session_state.next_scheduled_send:%Y-%m-%d %H:%M}")
+                st.info(f"距离下次发送还有：{remaining_hours}小时{remaining_minutes}分钟")
+            else:
+                st.info("即将检查并发送提醒邮件...")
 
 # 上传Excel文件
 st.subheader("上传专利数据")
@@ -445,6 +484,14 @@ if st.session_state.auto_refresh:
                     remaining_minutes = int((remaining_seconds % 3600) // 60)
                     st.info(f"邮件提醒功能已启用，距离下次发送还有{remaining_hours}小时{remaining_minutes}分钟")
 
+if st.session_state.email_config["email_enabled"] and not st.session_state.is_first_load:
+    # 独立线程检查（避免阻塞页面）
+    import threading
+    def check_and_send():
+        time_module.sleep(5)  # 延迟5秒，确保页面加载完成
+        auto_send_reminders()
+    threading.Thread(target=check_and_send, daemon=True).start()
+    
 # 标记为非首次加载
 if st.session_state.is_first_load:
     st.session_state.is_first_load = False
