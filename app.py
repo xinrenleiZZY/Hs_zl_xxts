@@ -21,7 +21,8 @@ st.set_page_config(
 
 # 配置文件路径
 CONFIG_FILE = "email_config.pkl"
-DATA_FILE = "app_data.pkl"  # 新增：数据持久化文件
+DATA_FILE = "app_data.pkl"  # 数据持久化文件
+LOG_FILE = "email_log.txt"  # 邮件发送日志文件
 
 # 初始化会话状态
 if 'patent_data' not in st.session_state:
@@ -34,9 +35,10 @@ if 'auto_refresh' not in st.session_state:
     st.session_state.auto_refresh = True  # 自动刷新开关
 if 'reminder_days' not in st.session_state:
     st.session_state.reminder_days = 15  # 提醒提前天数默认值
-# 新增：邮件发送时间记录
 if 'last_email_sent_time' not in st.session_state:
     st.session_state.last_email_sent_time = None  # 上次邮件发送时间
+if 'is_first_load' not in st.session_state:
+    st.session_state.is_first_load = True  # 标记首次加载
 # 邮箱配置会话状态
 if 'email_config' not in st.session_state:
     st.session_state.email_config = {
@@ -48,9 +50,9 @@ if 'email_config' not in st.session_state:
         "email_enabled": False
     }
 
-# 数据持久化核心函数
+# 数据持久化核心函数 - 增强版
 def load_persistent_data():
-    """从本地文件加载持久化数据到session_state"""
+    """从本地文件加载持久化数据到session_state，增强错误处理"""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'rb') as f:
@@ -67,21 +69,33 @@ def load_persistent_data():
                 # 恢复提醒天数设置
                 if 'reminder_days' in data:
                     st.session_state.reminder_days = data['reminder_days']
-                # 新增：恢复上次邮件发送时间
+                # 恢复上次邮件发送时间（增加格式验证）
                 if 'last_email_sent_time' in data:
-                    st.session_state.last_email_sent_time = data['last_email_sent_time']
+                    if isinstance(data['last_email_sent_time'], datetime):
+                        st.session_state.last_email_sent_time = data['last_email_sent_time']
+                    else:
+                        st.warning("上次发送时间格式无效，已重置")
+                        st.session_state.last_email_sent_time = None
         except Exception as e:
-            st.warning(f"加载数据失败，使用默认值：{str(e)}")
+            st.error(f"加载数据失败：{str(e)}，已重置部分数据")
+            # 仅重置有问题的时间数据，保留其他可能可用的数据
+            if not isinstance(st.session_state.last_email_sent_time, datetime):
+                st.session_state.last_email_sent_time = None
 
 def save_persistent_data():
-    """将session_state中的关键数据保存到本地文件"""
+    """将session_state中的关键数据保存到本地文件，增强验证"""
     try:
+        # 验证时间是否有效
+        if st.session_state.last_email_sent_time and not isinstance(st.session_state.last_email_sent_time, datetime):
+            st.warning("发送时间格式错误，未保存")
+            return
+            
         data_to_save = {
             'patent_data': st.session_state.patent_data,
             'last_upload_time': st.session_state.last_upload_time,
             'reminder_sent': st.session_state.reminder_sent,
             'reminder_days': st.session_state.reminder_days,
-            'last_email_sent_time': st.session_state.last_email_sent_time  # 新增
+            'last_email_sent_time': st.session_state.last_email_sent_time
         }
         with open(DATA_FILE, 'wb') as f:
             pickle.dump(data_to_save, f)
@@ -106,6 +120,15 @@ def save_email_config():
         st.success("邮箱配置已保存")
     except:
         st.error("保存邮箱配置失败")
+
+# 邮件发送日志记录
+def log_email_send(success, msg):
+    """记录邮件发送日志"""
+    try:
+        with open(LOG_FILE, 'a', encoding='utf-8') as f:
+            f.write(f"[{datetime.now():%Y-%m-%d %H:%M}] 发送状态：{'成功' if success else '失败'}，信息：{msg}\n")
+    except Exception as e:
+        st.warning(f"日志记录失败：{str(e)}")
 
 # 本地弹窗提醒组件
 def local_notification(message, title="提醒"):
@@ -170,18 +193,15 @@ def auto_send_reminders():
     if not (cfg["email_enabled"] and cfg["sender_email"] and cfg["sender_password"] and cfg["receiver_email"]):
         return False, "邮箱配置不完整或未启用"
     
-    # 检查是否在24小时内已发送过邮件
+    # 添加24小时发送间隔控制
     now = datetime.now()
     last_sent = st.session_state.last_email_sent_time
-    
     if last_sent is not None:
         time_diff = now - last_sent
         if time_diff < timedelta(hours=24):
-            remaining_seconds = (timedelta(hours=24) - time_diff).total_seconds()
-            remaining_hours = int(remaining_seconds // 3600)
-            remaining_minutes = int((remaining_seconds % 3600) // 60)
-            return True, f"邮件已在24小时内发送，下次可发送时间：{last_sent + timedelta(hours=24):%Y-%m-%d %H:%M}（剩余{remaining_hours}小时{remaining_minutes}分钟）"
-    
+            remaining_hours = int((timedelta(hours=24) - time_diff).total_seconds() // 3600)
+            return False, f"距离上次发送不足24小时，剩余{remaining_hours}小时"
+        
     # 处理数据
     df = st.session_state.patent_data.copy()
     today = datetime.today().date()
@@ -203,6 +223,9 @@ def auto_send_reminders():
         cfg["smtp_server"], cfg["smtp_port"],
         cfg["receiver_email"], reminder_patents
     )
+    
+    # 记录日志
+    log_email_send(success, msg)
     
     # 如果发送成功，更新上次发送时间
     if success:
@@ -241,7 +264,7 @@ with st.sidebar:
         help="1440分钟 = 24小时"  # 增加说明提示
     )
     
-    # 新增：显示上次邮件发送时间
+    # 显示上次邮件发送时间
     if st.session_state.last_email_sent_time:
         st.info(f"上次邮件发送时间：{st.session_state.last_email_sent_time:%Y-%m-%d %H:%M}")
         next_send_time = st.session_state.last_email_sent_time + timedelta(hours=24)
@@ -383,25 +406,7 @@ else:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# 页面加载时自动发送提醒邮件
-if st.session_state.email_config["email_enabled"]:
-    # 只有当距离上次发送超过24小时，才显示发送中状态，否则仅提示剩余时间
-    now = datetime.now()
-    last_sent = st.session_state.last_email_sent_time
-    if last_sent is None or (now - last_sent) >= timedelta(hours=24):
-        with st.spinner("正在检查并发送提醒邮件..."):
-            result, msg = auto_send_reminders()
-            if result:
-                st.success(f"邮件提醒检查完成：{msg}")
-            else:
-                st.info(f"邮件提醒检查：{msg}")
-    else:
-        time_diff = now - last_sent
-        remaining_seconds = (timedelta(hours=24) - time_diff).total_seconds()
-        remaining_hours = int(remaining_seconds // 3600)
-        remaining_minutes = int((remaining_seconds % 3600) // 60)
-        st.info(f"邮件提醒功能已启用，距离下次发送还有{remaining_hours}小时{remaining_minutes}分钟")
-# 自动刷新功能
+# 自动刷新功能和邮件检查
 if st.session_state.auto_refresh:
     st.markdown(
         f"""
@@ -414,3 +419,30 @@ if st.session_state.auto_refresh:
         unsafe_allow_html=True
     )
     st.caption(f"页面将在 {refresh_interval} 分钟后自动刷新")
+    
+    # 仅在自动刷新时检查邮件（非首次启动）
+    if not st.session_state.is_first_load and st.session_state.email_config["email_enabled"]:
+        with st.spinner("自动刷新：检查邮件提醒..."):
+            result, msg = auto_send_reminders()
+            if result:
+                st.success(f"邮件提醒检查完成：{msg}")
+            else:
+                st.info(f"邮件提醒检查：{msg}")
+    else:
+        # 首次加载时只显示状态信息，不发送邮件
+        if st.session_state.email_config["email_enabled"]:
+            now = datetime.now()
+            last_sent = st.session_state.last_email_sent_time
+            if last_sent is None:
+                st.info("邮件提醒功能已启用，将在首次自动刷新时检查发送")
+            else:
+                time_diff = now - last_sent
+                if time_diff < timedelta(hours=24):
+                    remaining_seconds = (timedelta(hours=24) - time_diff).total_seconds()
+                    remaining_hours = int(remaining_seconds // 3600)
+                    remaining_minutes = int((remaining_seconds % 3600) // 60)
+                    st.info(f"邮件提醒功能已启用，距离下次发送还有{remaining_hours}小时{remaining_minutes}分钟")
+
+# 标记为非首次加载
+if st.session_state.is_first_load:
+    st.session_state.is_first_load = False
