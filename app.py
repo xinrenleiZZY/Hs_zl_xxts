@@ -260,7 +260,8 @@ with st.sidebar:
         "刷新间隔（分钟）", 
         min_value=1, 
         max_value=1440,  # 最大支持24小时
-        value=1440,      # 默认24小时
+        # value=1440,      # 默认24小时
+        value=13,
         help="1440分钟 = 24小时"  # 增加说明提示
     )
     
@@ -313,6 +314,7 @@ if uploaded_file is not None:
         if missing_columns:
             st.error(f"Excel文件缺少必要的列：{', '.join(missing_columns)}")
         else:
+            df['专利号'] = df['专利号'].astype(str)
             df['缴费截止日期'] = pd.to_datetime(df['缴费截止日期'])
             st.session_state.patent_data = df
             st.session_state.last_upload_time = datetime.now().strftime('%Y-%m-%d %H:%M')
