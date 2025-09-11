@@ -94,7 +94,7 @@ def load_persistent_data():
             if not isinstance(st.session_state.last_email_sent_time, datetime):
                 st.session_state.last_email_sent_time = None
             if not st.session_state.next_scheduled_send or not isinstance(st.session_state.next_scheduled_send, datetime):
-                st.session_state.next_scheduled_send = datetime.now() + timedelta(hours=24)
+                st.session_state.next_scheduled_send = datetime.now()
 
 def save_persistent_data():
     """将session_state中的关键数据保存到本地文件，增强验证"""
@@ -223,7 +223,7 @@ def auto_send_reminders():
     
     # 添加24小时发送间隔控制
     now = datetime.now()
-    
+
     last_sent = st.session_state.last_email_sent_time
     if last_sent is not None:
         time_diff = now - last_sent
