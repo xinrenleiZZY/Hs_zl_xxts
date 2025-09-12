@@ -35,7 +35,7 @@ def handle_heartbeat():
             "timestamp": datetime.now().isoformat(),
             "last_data_upload": st.session_state.last_upload_time,
             "last_email_sent": st.session_state.last_email_sent_time.isoformat() 
-                               if st.session_state.last_email_sent_time else None,
+                               if st.session_state.last_email_sent_time is not None else None,
             "service": "patent-management-system"
         }
         
@@ -44,8 +44,6 @@ def handle_heartbeat():
         
         # 强制终止后续页面渲染，确保响应简洁
         st.stop()
-    
-handle_heartbeat()
 
 # 配置文件路径
 CONFIG_FILE = "email_config.pkl"
@@ -81,6 +79,8 @@ if 'email_config' not in st.session_state:
         "receiver_email": "",
         "email_enabled": False
     }
+
+handle_heartbeat()
 
 # 数据持久化核心函数 - 增强版
 def load_persistent_data():
