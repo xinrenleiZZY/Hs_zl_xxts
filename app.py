@@ -12,6 +12,7 @@ from smtplib import SMTPException
 import pickle  # 用于持久化存储
 import os  # 用于文件操作
 import time as time_module
+import threading
 
 # 页面配置
 st.set_page_config(
@@ -55,7 +56,7 @@ LOG_FILE = "email_log.txt"  # 邮件发送日志文件
 if 'patent_data' not in st.session_state:
     st.session_state.patent_data = None  # 存储上传的专利数据
 if 'last_upload_time' not in st.session_state:
-    st.session_state.last_upload_time = "无"  # 记录上次上传时间
+    st.session_state.last_upload_time = None  # 记录上次上传时间
 if 'reminder_sent' not in st.session_state:
     st.session_state.reminder_sent = set()  # 记录已发送提醒的专利ID
 if 'auto_refresh' not in st.session_state:
