@@ -12,9 +12,6 @@ from smtplib import SMTPException
 import pickle  # 用于持久化存储
 import os  # 用于文件操作
 import time as time_module
-from fastapi import FastAPI, Request  # 新增FastAPI用于心跳接口
-import threading
-from uvicorn import run  # 新增uvicorn用于运行API服务
 
 # 页面配置
 st.set_page_config(
@@ -23,27 +20,31 @@ st.set_page_config(
     layout="wide"
 )
 
-# 新增：启动心跳接口服务
-app = FastAPI()
-@app.get("/heartbeat")
-async def heartbeat():
-    """心跳接口，用于监控系统是否正常运行"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "last_data_upload": st.session_state.last_upload_time,
-        "last_email_sent": st.session_state.last_email_sent_time.isoformat() if st.session_state.last_email_sent_time else None
-    }
-
-def run_api():
-    """在后台线程运行心跳接口服务"""
-    run(app, host="0.0.0.0", port=8000, log_level="error")
-
-# 启动API服务（仅启动一次）
-if 'api_started' not in st.session_state:
-    st.session_state.api_started = True
-    threading.Thread(target=run_api, daemon=True).start()
-    time.sleep(1)  # 等待API服务启动
+# 新增：基于 Streamlit 路由的心跳接口实现
+def handle_heartbeat():
+    """处理心跳检测请求，返回符合 UptimeRobot 要求的响应"""
+    # 获取当前查询参数
+    query_params = st.experimental_get_query_params()
+    
+    # 如果访问路径包含 heartbeat 参数，返回心跳响应
+    if "heartbeat" in query_params:
+        # 构建心跳响应数据
+        response = {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "last_data_upload": st.session_state.last_upload_time,
+            "last_email_sent": st.session_state.last_email_sent_time.isoformat() 
+                               if st.session_state.last_email_sent_time else None,
+            "service": "patent-management-system"
+        }
+        
+        # 使用 Streamlit 的 markdown 输出纯文本 JSON，避免页面元素干扰监控
+        st.markdown(f"""```json\n{response}\n```""", unsafe_allow_html=True)
+        
+        # 强制终止后续页面渲染，确保响应简洁
+        st.stop()
+    
+handle_heartbeat()
 
 # 配置文件路径
 CONFIG_FILE = "email_config.pkl"
@@ -294,8 +295,8 @@ def auto_send_reminders():
 st.title("📅 专利缴费管理系统")
 st.write("上传专利信息，系统将自动跟踪到期状态并提醒即将到期的项目")
 
-# 新增：显示心跳接口信息
-st.info(f"系统心跳接口：http://localhost:8000/heartbeat")
+# 显示正确的心跳接口地址（适配 Streamlit Cloud）
+st.info(f"系统心跳接口：https://hszlxxts.streamlit.app/?heartbeat=1")
 
 # 加载保存的配置（邮箱配置+核心数据）
 load_email_config()
