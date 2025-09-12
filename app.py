@@ -21,30 +21,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# 新增：基于 Streamlit 路由的心跳接口实现
-def handle_heartbeat():
-    """处理心跳检测请求，返回符合 UptimeRobot 要求的响应"""
-    # 获取当前查询参数
-    query_params = st.experimental_get_query_params()
-    
-    # 如果访问路径包含 heartbeat 参数，返回心跳响应
-    if "heartbeat" in query_params:
-        # 构建心跳响应数据
-        response = {
-            "status": "healthy",
-            "timestamp": datetime.now().isoformat(),
-            "last_data_upload": st.session_state.last_upload_time,
-            "last_email_sent": st.session_state.last_email_sent_time.isoformat() 
-                               if st.session_state.last_email_sent_time is not None else None,
-            "service": "patent-management-system"
-        }
-        
-        # 使用 Streamlit 的 markdown 输出纯文本 JSON，避免页面元素干扰监控
-        st.markdown(f"""```json\n{response}\n```""", unsafe_allow_html=True)
-        
-        # 强制终止后续页面渲染，确保响应简洁
-        st.stop()
-
 # 配置文件路径
 CONFIG_FILE = "email_config.pkl"
 DATA_FILE = "app_data.pkl"  # 数据持久化文件
@@ -79,6 +55,30 @@ if 'email_config' not in st.session_state:
         "receiver_email": "",
         "email_enabled": False
     }
+    
+# 新增：基于 Streamlit 路由的心跳接口实现
+def handle_heartbeat():
+    """处理心跳检测请求，返回符合 UptimeRobot 要求的响应"""
+    # 获取当前查询参数
+    query_params = st.experimental_get_query_params()
+    
+    # 如果访问路径包含 heartbeat 参数，返回心跳响应
+    if "heartbeat" in query_params:
+        # 构建心跳响应数据
+        response = {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "last_data_upload": st.session_state.last_upload_time,
+            "last_email_sent": st.session_state.last_email_sent_time.isoformat() 
+                               if st.session_state.last_email_sent_time is not None else None,
+            "service": "patent-management-system"
+        }
+        
+        # 使用 Streamlit 的 markdown 输出纯文本 JSON，避免页面元素干扰监控
+        st.markdown(f"""```json\n{response}\n```""", unsafe_allow_html=True)
+        
+        # 强制终止后续页面渲染，确保响应简洁
+        st.stop()
 
 handle_heartbeat()
 
