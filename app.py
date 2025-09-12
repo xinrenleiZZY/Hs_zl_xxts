@@ -12,6 +12,9 @@ from smtplib import SMTPException
 import pickle  # 用于持久化存储
 import os  # 用于文件操作
 import time as time_module
+from fastapi import FastAPI, Request  # 新增FastAPI用于心跳接口
+import threading
+from uvicorn import run  # 新增uvicorn用于运行API服务
 
 # 页面配置
 st.set_page_config(
@@ -19,6 +22,28 @@ st.set_page_config(
     page_icon="📅",
     layout="wide"
 )
+
+# 新增：启动心跳接口服务
+app = FastAPI()
+@app.get("/heartbeat")
+async def heartbeat():
+    """心跳接口，用于监控系统是否正常运行"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "last_data_upload": st.session_state.last_upload_time,
+        "last_email_sent": st.session_state.last_email_sent_time.isoformat() if st.session_state.last_email_sent_time else None
+    }
+
+def run_api():
+    """在后台线程运行心跳接口服务"""
+    run(app, host="0.0.0.0", port=8000, log_level="error")
+
+# 启动API服务（仅启动一次）
+if 'api_started' not in st.session_state:
+    st.session_state.api_started = True
+    threading.Thread(target=run_api, daemon=True).start()
+    time.sleep(1)  # 等待API服务启动
 
 # 配置文件路径
 CONFIG_FILE = "email_config.pkl"
@@ -269,6 +294,9 @@ def auto_send_reminders():
 st.title("📅 专利缴费管理系统")
 st.write("上传专利信息，系统将自动跟踪到期状态并提醒即将到期的项目")
 
+# 新增：显示心跳接口信息
+st.info(f"系统心跳接口：http://localhost:8000/heartbeat")
+
 # 加载保存的配置（邮箱配置+核心数据）
 load_email_config()
 load_persistent_data()
@@ -286,14 +314,13 @@ with st.sidebar:
     # 自动刷新设置
     st.subheader("自动刷新")
     st.session_state.auto_refresh = st.checkbox("启用页面自动刷新", value=True)
-    # 调整滑块范围：支持1-1440分钟（1440分钟=24小时），默认24小时
+    # 缩短自动刷新间隔：支持1-60分钟（1小时），默认10分钟
     refresh_interval = st.slider(
         "刷新间隔（分钟）", 
         min_value=1, 
-        max_value=1440,  # 最大支持24小时
-        # value=1440,      # 默认24小时
-        value=13,
-        help="1440分钟 = 24小时"  # 增加说明提示
+        max_value=60,  # 最大支持1小时
+        value=10,      # 默认10分钟
+        help="缩短了最大刷新间隔，现在最大为60分钟"
     )
     
     # 显示上次邮件发送时间
@@ -488,7 +515,6 @@ if st.session_state.auto_refresh:
 
 if st.session_state.email_config["email_enabled"] and not st.session_state.is_first_load:
     # 独立线程检查（避免阻塞页面）
-    import threading
     def check_and_send():
         time_module.sleep(5)  # 延迟5秒，确保页面加载完成
         auto_send_reminders()
