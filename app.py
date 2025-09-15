@@ -321,7 +321,7 @@ with st.sidebar:
         "刷新间隔（分钟）", 
         min_value=1, 
         max_value=60,  # 最大支持1小时
-        value=10,      # 默认10分钟
+        value=2,      # 默认10分钟
         help="缩短了最大刷新间隔，现在最大为60分钟"
     )
     
@@ -480,28 +480,38 @@ else:
 
 # 自动刷新功能和邮件检查
 if st.session_state.auto_refresh:
-    st.markdown(
-        f"""
-        <script>
-        setTimeout(function() {{
+    refresh_js = f"""
+    <script>
+        // 检查是否是首次加载（用localStorage标记）
+        if (!localStorage.getItem('hasRefreshedOnce')) {{
+            // 首次加载：立即刷新
             window.location.reload();
-        }}, {refresh_interval * 60 * 1000});
-        </script>
-        """,
-        unsafe_allow_html=True
-    )
+            localStorage.setItem('hasRefreshedOnce', 'true');
+        }} else {{
+            // 非首次加载：按间隔刷新
+            setTimeout(function() {{
+                window.location.reload();
+            }}, {refresh_interval * 60 * 1000});
+        }}
+    </script>
+    """
+    st.markdown(refresh_js, unsafe_allow_html=True)
     st.caption(f"页面将在 {refresh_interval} 分钟后自动刷新")
     
     # 仅在自动刷新时检查邮件（非首次启动）
     if not st.session_state.is_first_load and st.session_state.email_config["email_enabled"]:
-        with st.spinner("自动刷新：检查邮件提醒..."):
+        st.spinner("自动刷新：检查邮件提醒...")  # 仅显示状态，不阻塞
+        
+        # 独立线程执行，避免阻塞页面
+        def check_and_send():
+            time_module.sleep(5)  # 延迟确保页面加载
             result, msg = auto_send_reminders()
-            if result:
-                st.success(f"邮件提醒检查完成：{msg}")
-            else:
-                st.info(f"邮件提醒检查：{msg}")
+            # 线程内无法直接更新UI，可通过日志记录结果
+            log_email_send(result, f"线程检查结果：{msg}")
+        
+        threading.Thread(target=check_and_send, daemon=True).start()
     else:
-        # 首次加载时只显示状态信息，不发送邮件
+        # 首次加载时显示状态信息
         if st.session_state.email_config["email_enabled"]:
             now = datetime.now()
             last_sent = st.session_state.last_email_sent_time
@@ -515,12 +525,6 @@ if st.session_state.auto_refresh:
                     remaining_minutes = int((remaining_seconds % 3600) // 60)
                     st.info(f"邮件提醒功能已启用，距离下次发送还有{remaining_hours}小时{remaining_minutes}分钟")
 
-if st.session_state.email_config["email_enabled"] and not st.session_state.is_first_load:
-    # 独立线程检查（避免阻塞页面）
-    def check_and_send():
-        time_module.sleep(5)  # 延迟5秒，确保页面加载完成
-        auto_send_reminders()
-    threading.Thread(target=check_and_send, daemon=True).start()
 
 # 标记为非首次加载
 if st.session_state.is_first_load:
