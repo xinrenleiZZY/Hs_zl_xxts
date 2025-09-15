@@ -105,7 +105,7 @@ def load_persistent_data():
                         st.session_state.next_scheduled_send = data['next_scheduled_send']
                     else:
                         st.warning("计划发送时间格式无效，已重置")
-                        st.session_state.next_scheduled_send = datetime.now() + timedelta(minutes=3)
+                        st.session_state.next_scheduled_send = datetime.now() + timedelta(minutes=1440)
                 # 恢复检查次数
                 if 'check_count' in data:
                     st.session_state.check_count = data['check_count']
@@ -229,7 +229,7 @@ def send_email_reminder(sender_email, sender_password, smtp_server, smtp_port,
     except Exception as e:
         return False, f"发送失败：{str(e)}"
 
-# 自动发送提醒邮件的函数（添加了3 min间隔控制）
+# 自动发送提醒邮件的函数（添加了1440 min 1day间隔控制）
 def auto_send_reminders(patent_data):
     if patent_data is None:
         return False, "无专利数据可检查"
@@ -243,8 +243,8 @@ def auto_send_reminders(patent_data):
     now = datetime.now()
 
     if not st.session_state.next_scheduled_send or st.session_state.next_scheduled_send <= now:
-        # 计算下次发送时间（当前时间 + 3 min）
-        st.session_state.next_scheduled_send = now + timedelta(minutes=3)
+        # 计算下次发送时间（当前时间 + 1440 min 1day）
+        st.session_state.next_scheduled_send = now + timedelta(minutes=1440)
         save_persistent_data()  # 保存计划时间
     else:
         # 未到计划时间
@@ -252,15 +252,15 @@ def auto_send_reminders(patent_data):
         remaining_minutes = int(remaining.total_seconds() // 60)
         return False, f"未到发送时间，剩余 {remaining_minutes} 分钟"
     
-    # 添加3 min发送间隔控制
+    # 添加1440 min 1day发送间隔控制
     now = datetime.now()
 
     last_sent = st.session_state.last_email_sent_time
     if last_sent is not None:
         time_diff = now - last_sent
-        if time_diff < timedelta(minutes=3):
-            remaining_hours = int((timedelta(minutes=3) - time_diff).total_seconds() // 3600)
-            return False, f"距离上次发送不足3 min，剩余{remaining_hours}分钟"
+        if time_diff < timedelta(minutes=1440):
+            remaining_hours = int((timedelta(minutes=1440) - time_diff).total_seconds() // 3600)
+            return False, f"距离上次发送不足1440 min 1day，剩余{remaining_hours}分钟"
         
     # 处理数据
     df = st.session_state.patent_data.copy()
@@ -291,7 +291,7 @@ def auto_send_reminders(patent_data):
     if success:
         st.session_state.last_email_sent_time = now
         # 确保下次发送时间正确更新
-        st.session_state.next_scheduled_send = now + timedelta(minutes=3)
+        st.session_state.next_scheduled_send = now + timedelta(minutes=1440)
         save_persistent_data()
         
     return success, msg
@@ -419,7 +419,7 @@ with st.sidebar:
     # 显示上次邮件发送时间
     if st.session_state.last_email_sent_time:
         st.info(f"上次邮件发送时间：{st.session_state.last_email_sent_time:%Y-%m-%d %H:%M}")
-        next_send_time = st.session_state.last_email_sent_time + timedelta(minutes=3)
+        next_send_time = st.session_state.last_email_sent_time + timedelta(minutes=1440)
         if datetime.now() < next_send_time:
             st.info(f"下次邮件发送时间：{next_send_time:%Y-%m-%d %H:%M}")
     
@@ -616,8 +616,8 @@ if st.session_state.auto_refresh:
                 st.info("邮件提醒功能已启用，将在首次自动刷新时检查发送")
             else:
                 time_diff = now - last_sent
-                if time_diff < timedelta(minutes=3):
-                    remaining_seconds = (timedelta(minutes=3) - time_diff).total_seconds()
+                if time_diff < timedelta(minutes=1440):
+                    remaining_seconds = (timedelta(minutes=1440) - time_diff).total_seconds()
                     remaining_hours = int(remaining_seconds // 3600)
                     remaining_minutes = int((remaining_seconds % 3600) // 60)
                     st.info(f"邮件提醒功能已启用，距离下次发送还有{remaining_hours}小时{remaining_minutes}分钟")
