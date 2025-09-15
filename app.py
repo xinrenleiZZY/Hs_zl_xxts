@@ -72,45 +72,6 @@ if 'last_check_time' not in st.session_state:
 #         "email_enabled": False
 #     }
     
-# 新增：基于 Streamlit 路由的心跳接口实现
-def handle_heartbeat():
-    """处理心跳检测请求，返回符合 UptimeRobot 要求的响应"""
-    # 获取当前查询参数
-    query_params = st.query_params
-     # 如果包含 trigger_check 参数，触发检查
-    if "trigger_check" in query_params:
-        # 执行检查任务
-        success, msg = run_scheduled_task()
-        # 返回检查结果
-        response = {
-            "status": "check_completed",
-            "timestamp": datetime.now().isoformat(),
-            "success": success,
-            "message": msg,
-            "check_count": st.session_state.check_count
-        }
-        st.markdown(f"""```json\n{response}\n```""", unsafe_allow_html=True)
-        st.stop()
-    # 如果访问路径包含 heartbeat 参数，返回心跳响应
-    if "heartbeat" in query_params:
-        # 构建心跳响应数据
-        response = {
-            "status": "healthy",
-            "timestamp": datetime.now().isoformat(),
-            "last_data_upload": st.session_state.last_upload_time,
-            "last_email_sent": st.session_state.last_email_sent_time.isoformat() 
-                               if st.session_state.last_email_sent_time is not None else None,
-            "service": "patent-management-system"
-        }
-        
-        # 使用 Streamlit 的 markdown 输出纯文本 JSON，避免页面元素干扰监控
-        st.markdown(f"""```json\n{response}\n```""", unsafe_allow_html=True)
-        
-        # 强制终止后续页面渲染，确保响应简洁
-        st.stop()
-
-handle_heartbeat()
-
 # 数据持久化核心函数 - 增强版
 def load_persistent_data():
     """从本地文件加载持久化数据到session_state，增强错误处理"""
@@ -367,6 +328,44 @@ def run_scheduled_task():
         return False, "无专利数据，跳过发送（本次已记录为检查）"
     finally:
         st.session_state.email_sending = False
+
+# 新增：基于 Streamlit 路由的心跳接口实现
+def handle_heartbeat():
+    """处理心跳检测请求，返回符合 UptimeRobot 要求的响应"""
+    # 获取当前查询参数
+    query_params = st.query_params
+     # 如果包含 trigger_check 参数，触发检查
+    if "trigger_check" in query_params:
+        # 执行检查任务
+        success, msg = run_scheduled_task()
+        # 返回检查结果
+        response = {
+            "status": "check_completed",
+            "success": success,
+            "message": msg,
+        }
+        st.markdown(f"""```json\n{response}\n```""", unsafe_allow_html=True)
+        st.stop()
+    # 如果访问路径包含 heartbeat 参数，返回心跳响应
+    if "heartbeat" in query_params:
+        # 构建心跳响应数据
+        response = {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "last_data_upload": st.session_state.last_upload_time,
+            "last_email_sent": st.session_state.last_email_sent_time.isoformat() 
+                               if st.session_state.last_email_sent_time is not None else None,
+            "service": "patent-management-system"
+        }
+        
+        # 使用 Streamlit 的 markdown 输出纯文本 JSON，避免页面元素干扰监控
+        st.markdown(f"""```json\n{response}\n```""", unsafe_allow_html=True)
+        
+        # 强制终止后续页面渲染，确保响应简洁
+        st.stop()
+
+handle_heartbeat()
+
 
 # 标题
 st.title("📅 专利缴费管理系统")
