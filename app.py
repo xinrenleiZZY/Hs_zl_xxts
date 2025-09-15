@@ -36,7 +36,7 @@ if 'reminder_sent' not in st.session_state:
 if 'auto_refresh' not in st.session_state:
     st.session_state.auto_refresh = True  # 自动刷新开关
 if 'reminder_days' not in st.session_state:
-    st.session_state.reminder_days = 15  # 提醒提前天数默认值
+    st.session_state.reminder_days = 49  # 提醒提前天数默认值
 if 'last_email_sent_time' not in st.session_state:
     st.session_state.last_email_sent_time = None  # 上次邮件发送时间
 if 'is_first_load' not in st.session_state:
@@ -60,7 +60,7 @@ if 'email_config' not in st.session_state:
 def handle_heartbeat():
     """处理心跳检测请求，返回符合 UptimeRobot 要求的响应"""
     # 获取当前查询参数
-    query_params = st.experimental_get_query_params()
+    query_params = st.query_params()
     
     # 如果访问路径包含 heartbeat 参数，返回心跳响应
     if "heartbeat" in query_params:
@@ -114,7 +114,7 @@ def load_persistent_data():
                         st.session_state.next_scheduled_send = data['next_scheduled_send']
                     else:
                         st.warning("计划发送时间格式无效，已重置")
-                        st.session_state.next_scheduled_send = datetime.now() + timedelta(minutes=3)  # 修改为3分钟
+                        st.session_state.next_scheduled_send = datetime.now() + timedelta(minutes=3)
         except Exception as e:
             st.error(f"加载数据失败：{str(e)}，已重置部分数据")
             # 仅重置有问题的时间数据，保留其他可能可用的数据
@@ -225,7 +225,7 @@ def send_email_reminder(sender_email, sender_password, smtp_server, smtp_port,
     except Exception as e:
         return False, f"发送失败：{str(e)}"
 
-# 自动发送提醒邮件的函数（修改为3分钟间隔）
+# 自动发送提醒邮件的函数（添加了3 min间隔控制）
 def auto_send_reminders():
     if st.session_state.patent_data is None:
         return False, "无专利数据可检查"
@@ -239,8 +239,8 @@ def auto_send_reminders():
     now = datetime.now()
 
     if not st.session_state.next_scheduled_send or st.session_state.next_scheduled_send <= now:
-        # 计算下次发送时间（当前时间 + 3分钟）
-        st.session_state.next_scheduled_send = now + timedelta(minutes=3)  # 修改为3分钟
+        # 计算下次发送时间（当前时间 + 3 min）
+        st.session_state.next_scheduled_send = now + timedelta(minutes=3)
         save_persistent_data()  # 保存计划时间
     else:
         # 未到计划时间
@@ -248,15 +248,15 @@ def auto_send_reminders():
         remaining_minutes = int(remaining.total_seconds() // 60)
         return False, f"未到发送时间，剩余 {remaining_minutes} 分钟"
     
-    # 添加3分钟发送间隔控制
+    # 添加3 min发送间隔控制
     now = datetime.now()
 
     last_sent = st.session_state.last_email_sent_time
     if last_sent is not None:
         time_diff = now - last_sent
-        if time_diff < timedelta(minutes=3):  # 修改为3分钟
-            remaining_minutes = int((timedelta(minutes=3) - time_diff).total_seconds() // 60)  # 修改为3分钟
-            return False, f"距离上次发送不足3分钟，剩余{remaining_minutes}分钟"
+        if time_diff < timedelta(minutes=3):
+            remaining_hours = int((timedelta(minutes=3) - time_diff).total_seconds() // 3600)
+            return False, f"距离上次发送不足3 min，剩余{remaining_hours}分钟"
         
     # 处理数据
     df = st.session_state.patent_data.copy()
@@ -287,7 +287,7 @@ def auto_send_reminders():
     if success:
         st.session_state.last_email_sent_time = now
         # 确保下次发送时间正确更新
-        st.session_state.next_scheduled_send = now + timedelta(minutes=3)  # 修改为3分钟
+        st.session_state.next_scheduled_send = now + timedelta(minutes=3)
         save_persistent_data()
         
     return success, msg
@@ -321,14 +321,14 @@ with st.sidebar:
         "刷新间隔（分钟）", 
         min_value=1, 
         max_value=60,  # 最大支持1小时
-        value=1,      # 为了配合3分钟邮件间隔，建议刷新间隔设为1分钟
-        help="为配合3分钟邮件发送间隔，建议设置为1分钟"
+        value=10,      # 默认10分钟
+        help="缩短了最大刷新间隔，现在最大为60分钟"
     )
     
     # 显示上次邮件发送时间
     if st.session_state.last_email_sent_time:
         st.info(f"上次邮件发送时间：{st.session_state.last_email_sent_time:%Y-%m-%d %H:%M}")
-        next_send_time = st.session_state.last_email_sent_time + timedelta(minutes=3)  # 修改为3分钟
+        next_send_time = st.session_state.last_email_sent_time + timedelta(minutes=3)
         if datetime.now() < next_send_time:
             st.info(f"下次邮件发送时间：{next_send_time:%Y-%m-%d %H:%M}")
     
@@ -450,26 +450,78 @@ if st.session_state.patent_data is not None:
     if not df[df['状态'] == '即将到期'].empty:
         st.subheader("📌 即将到期专利倒计时")
         countdown_df = df[df['状态'] == '即将到期'][['专利名称', '专利号', '缴费截止日期', '距离到期天数']]
+        countdown_df = countdown_df.sort_values('距离到期天数')
+        st.dataframe(countdown_df, use_container_width=True)
 
-# 触发自动发送检查（添加在页面末尾，确保页面加载时检查）
-if st.session_state.auto_refresh and st.session_state.email_config["email_enabled"]:
-    # 使用线程执行，避免阻塞页面
-    def check_and_send():
-        success, msg = auto_send_reminders()
-        if success:
-            st.toast(f"邮件发送成功：{msg}")
-        elif "未到发送时间" not in msg and "不足3分钟" not in msg:
-            st.toast(f"邮件发送状态：{msg}")
+else:
+    st.info("请上传专利数据Excel文件，上传后会自动保存")
     
-    # 启动线程检查发送
-    threading.Thread(target=check_and_send, daemon=True).start()
+    # 提供模板下载
+    sample_data = {
+        '专利名称': ['发明专利A', '实用新型专利B', '外观设计专利C'],
+        '专利号': ['ZL202010000000', 'ZL202020000000', 'ZL202030000000'],
+        '缴费截止日期': [
+            (datetime.today() + timedelta(days=15)).strftime('%Y-%m-%d'),
+            (datetime.today() + timedelta(days=45)).strftime('%Y-%m-%d'),
+            (datetime.today() - timedelta(days=5)).strftime('%Y-%m-%d')
+        ],
+        '缴费金额': [1300, 900, 500]
+    }
+    sample_df = pd.DataFrame(sample_data)
+    buffer = BytesIO()
+    sample_df.to_excel(buffer, index=False)
+    buffer.seek(0)
+    st.download_button(
+        label="下载示例Excel模板",
+        data=buffer,
+        file_name="专利缴费信息模板.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
-# 自动刷新页面（根据设置的间隔）
+# 自动刷新功能和邮件检查
 if st.session_state.auto_refresh:
-    st_autorefresh = st.empty()
-    st_autorefresh.markdown(
+    st.markdown(
         f"""
-        <meta http-equiv="refresh" content="{refresh_interval * 60}">
+        <script>
+        setTimeout(function() {{
+            window.location.reload();
+        }}, {refresh_interval * 60 * 1000});
+        </script>
         """,
         unsafe_allow_html=True
     )
+    st.caption(f"页面将在 {refresh_interval} 分钟后自动刷新")
+    
+    # 仅在自动刷新时检查邮件（非首次启动）
+    if not st.session_state.is_first_load and st.session_state.email_config["email_enabled"]:
+        with st.spinner("自动刷新：检查邮件提醒..."):
+            result, msg = auto_send_reminders()
+            if result:
+                st.success(f"邮件提醒检查完成：{msg}")
+            else:
+                st.info(f"邮件提醒检查：{msg}")
+    else:
+        # 首次加载时只显示状态信息，不发送邮件
+        if st.session_state.email_config["email_enabled"]:
+            now = datetime.now()
+            last_sent = st.session_state.last_email_sent_time
+            if last_sent is None:
+                st.info("邮件提醒功能已启用，将在首次自动刷新时检查发送")
+            else:
+                time_diff = now - last_sent
+                if time_diff < timedelta(minutes=3):
+                    remaining_seconds = (timedelta(minutes=3) - time_diff).total_seconds()
+                    remaining_hours = int(remaining_seconds // 3600)
+                    remaining_minutes = int((remaining_seconds % 3600) // 60)
+                    st.info(f"邮件提醒功能已启用，距离下次发送还有{remaining_hours}小时{remaining_minutes}分钟")
+
+if st.session_state.email_config["email_enabled"] and not st.session_state.is_first_load:
+    # 独立线程检查（避免阻塞页面）
+    def check_and_send():
+        time_module.sleep(5)  # 延迟5秒，确保页面加载完成
+        auto_send_reminders()
+    threading.Thread(target=check_and_send, daemon=True).start()
+
+# 标记为非首次加载
+if st.session_state.is_first_load:
+    st.session_state.is_first_load = False
