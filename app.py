@@ -226,8 +226,8 @@ def send_email_reminder(sender_email, sender_password, smtp_server, smtp_port,
         return False, f"发送失败：{str(e)}"
 
 # 自动发送提醒邮件的函数（添加了3 min间隔控制）
-def auto_send_reminders():
-    if st.session_state.patent_data is None:
+def auto_send_reminders(patent_data):
+    if patent_data is None:
         return False, "无专利数据可检查"
         
     # 获取配置
@@ -500,18 +500,14 @@ if st.session_state.auto_refresh:
     
     # 仅在自动刷新时检查邮件（非首次启动）
     if not st.session_state.is_first_load and st.session_state.email_config["email_enabled"]:
-        st.spinner("自动刷新：检查邮件提醒...")  # 仅显示状态，不阻塞
-        
-        # 独立线程执行，避免阻塞页面
-        def check_and_send():
-            time_module.sleep(5)  # 延迟确保页面加载
-            result, msg = auto_send_reminders()
-            # 线程内无法直接更新UI，可通过日志记录结果
-            log_email_send(result, f"线程检查结果：{msg}")
-        
-        threading.Thread(target=check_and_send, daemon=True).start()
+        with st.spinner("自动刷新：检查邮件提醒..."):
+            result, msg = auto_send_reminders(st.session_state.patent_data)
+            if result:
+                st.success(f"邮件提醒检查完成：{msg}")
+            else:
+                st.info(f"邮件提醒检查：{msg}")
     else:
-        # 首次加载时显示状态信息
+        # 首次加载时只显示状态信息，不发送邮件
         if st.session_state.email_config["email_enabled"]:
             now = datetime.now()
             last_sent = st.session_state.last_email_sent_time
@@ -525,7 +521,18 @@ if st.session_state.auto_refresh:
                     remaining_minutes = int((remaining_seconds % 3600) // 60)
                     st.info(f"邮件提醒功能已启用，距离下次发送还有{remaining_hours}小时{remaining_minutes}分钟")
 
+if st.session_state.email_config["email_enabled"] and not st.session_state.is_first_load:
+    # 从主线程获取数据后传递给子线程
+    threading.Thread(target=auto_send_reminders, args=(st.session_state.patent_data,)).start()
+    # 确保页面加载后再启动线程，避免阻塞
+    def check_and_send(patent_data):
+        time_module.sleep(5)  # 延迟5秒，确保页面加载完成
+        auto_send_reminders(patent_data)
+    threading.Thread(target=check_and_send, daemon=True).start()
 
+# 触发检查
+if st.button("开始检查"):
+    check_and_send(st.session_state.patent_data)
 # 标记为非首次加载
 if st.session_state.is_first_load:
     st.session_state.is_first_load = False
