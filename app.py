@@ -60,7 +60,7 @@ if 'email_config' not in st.session_state:
 def handle_heartbeat():
     """处理心跳检测请求，返回符合 UptimeRobot 要求的响应"""
     # 获取当前查询参数
-    query_params = st.query_params()
+    query_params = st.query_params
     
     # 如果访问路径包含 heartbeat 参数，返回心跳响应
     if "heartbeat" in query_params:
