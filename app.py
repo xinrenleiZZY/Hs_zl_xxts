@@ -43,8 +43,8 @@ if 'is_first_load' not in st.session_state:
     st.session_state.is_first_load = True  # 标记首次加载
 if 'next_scheduled_send' not in st.session_state:
     st.session_state.next_scheduled_send = None
-
-
+if 'email_config' not in st.session_state:
+    st.session_state.email_sending = False  # 邮件发送状态
 # 邮箱配置会话状态
 if 'email_config' not in st.session_state:
     st.session_state.email_config = {
@@ -55,13 +55,42 @@ if 'email_config' not in st.session_state:
         "receiver_email": "",
         "email_enabled": False
     }
+
+if 'check_count' not in st.session_state:
+    st.session_state.check_count = 0  # 总检查次数
+if 'last_check_time' not in st.session_state:
+    st.session_state.last_check_time = None  # 上次检查时间
+
+# # 邮箱配置会话状态
+# if 'email_config' not in st.session_state:
+#     st.session_state.email_config = {
+#         "sender_email": "",
+#         "sender_password": "",
+#         "smtp_server": "smtp.qq.com",
+#         "smtp_port": 587,
+#         "receiver_email": "",
+#         "email_enabled": False
+#     }
     
 # 新增：基于 Streamlit 路由的心跳接口实现
 def handle_heartbeat():
     """处理心跳检测请求，返回符合 UptimeRobot 要求的响应"""
     # 获取当前查询参数
     query_params = st.query_params
-    
+     # 如果包含 trigger_check 参数，触发检查
+    if "trigger_check" in query_params:
+        # 执行检查任务
+        success, msg = run_scheduled_task()
+        # 返回检查结果
+        response = {
+            "status": "check_completed",
+            "timestamp": datetime.now().isoformat(),
+            "success": success,
+            "message": msg,
+            "check_count": st.session_state.check_count
+        }
+        st.markdown(f"""```json\n{response}\n```""", unsafe_allow_html=True)
+        st.stop()
     # 如果访问路径包含 heartbeat 参数，返回心跳响应
     if "heartbeat" in query_params:
         # 构建心跳响应数据
@@ -106,6 +135,7 @@ def load_persistent_data():
                     if isinstance(data['last_email_sent_time'], datetime):
                         st.session_state.last_email_sent_time = data['last_email_sent_time']
                     else:
+                        st.warning(f"上次发送时间:{data['last_email_sent_time']}")
                         st.warning("上次发送时间格式无效，已重置")
                         st.session_state.last_email_sent_time = None
 
@@ -115,6 +145,16 @@ def load_persistent_data():
                     else:
                         st.warning("计划发送时间格式无效，已重置")
                         st.session_state.next_scheduled_send = datetime.now() + timedelta(minutes=3)
+                # 恢复检查次数
+                if 'check_count' in data:
+                    st.session_state.check_count = data['check_count']
+                # 恢复上次检查时间
+                if 'last_check_time' in data:
+                    if isinstance(data['last_check_time'], datetime):
+                        st.session_state.last_check_time = data['last_check_time']
+                    else:
+                        st.warning("上次检查时间格式无效，已重置")
+                        st.session_state.last_check_time = None
         except Exception as e:
             st.error(f"加载数据失败：{str(e)}，已重置部分数据")
             # 仅重置有问题的时间数据，保留其他可能可用的数据
@@ -123,6 +163,7 @@ def load_persistent_data():
             if not st.session_state.next_scheduled_send or not isinstance(st.session_state.next_scheduled_send, datetime):
                 st.session_state.next_scheduled_send = datetime.now()
 
+# 数据持久化核心函数 - 关键数据保存到本地文件
 def save_persistent_data():
     """将session_state中的关键数据保存到本地文件，增强验证"""
     try:
@@ -137,7 +178,9 @@ def save_persistent_data():
             'reminder_sent': st.session_state.reminder_sent,
             'reminder_days': st.session_state.reminder_days,
             'last_email_sent_time': st.session_state.last_email_sent_time,
-            'next_scheduled_send': st.session_state.next_scheduled_send
+            'next_scheduled_send': st.session_state.next_scheduled_send,
+            'check_count': st.session_state.check_count,
+            'last_check_time': st.session_state.last_check_time
         }
         with open(DATA_FILE, 'wb') as f:
             pickle.dump(data_to_save, f)
@@ -167,7 +210,7 @@ def save_email_config():
 def log_email_send(success, msg):
     """记录邮件发送日志"""
     try:
-        with open(LOG_FILE, 'a', encoding='utf-8') as f:
+        with open(LOG_FILE, 'a', encoding='gbk') as f:
             f.write(f"[{datetime.now():%Y-%m-%d %H:%M}] 发送状态：{'成功' if success else '失败'}，信息：{msg}\n")
     except Exception as e:
         st.warning(f"日志记录失败：{str(e)}")
@@ -292,6 +335,39 @@ def auto_send_reminders(patent_data):
         
     return success, msg
 
+# 新增：自动刷新控制函数
+def setup_auto_refresh(interval_minutes):
+    if st.session_state.auto_refresh:
+        # 使用 JavaScript 定时刷新，更稳定
+        st.markdown(f"""
+        <script>
+            setTimeout(function() {{
+                window.location.reload();
+            }}, {interval_minutes * 60 * 1000});  // 毫秒为单位
+            console.log("自动刷新已启用，间隔 {interval_minutes} 分钟");
+        </script>
+        """, unsafe_allow_html=True)
+        return True
+    return False
+
+# 新增：定时任务执行函数（带线程锁避免重复执行）
+def run_scheduled_task():
+    """执行定时任务检查并发送邮件"""
+    st.session_state.check_count += 1
+    st.session_state.last_check_time = datetime.now()
+    save_persistent_data()  # 保存检查次数和时间
+
+    if st.session_state.email_sending:
+        return False, "已有任务在执行中"
+        
+    try:
+        st.session_state.email_sending = True
+        if st.session_state.patent_data is not None:
+            return auto_send_reminders(st.session_state.patent_data)
+        return False, "无专利数据，跳过发送（本次已记录为检查）"
+    finally:
+        st.session_state.email_sending = False
+
 # 标题
 st.title("📅 专利缴费管理系统")
 st.write("上传专利信息，系统将自动跟踪到期状态并提醒即将到期的项目")
@@ -302,6 +378,21 @@ st.info(f"系统心跳接口：https://hszlxxts.streamlit.app/?heartbeat=1")
 # 加载保存的配置（邮箱配置+核心数据）
 load_email_config()
 load_persistent_data()
+
+if st.session_state.is_first_load:
+    st.success("欢迎使用专利缴费管理系统！首次加载完成")
+    # 首次加载或每次访问时触发检查
+    def trigger_check():
+        time.sleep(2)  # 延迟2秒，确保页面加载完成
+        if 'patent_data' not in st.session_state and 'email_config' in st.session_state:
+            success, msg = run_scheduled_task()
+            st.session_state.check_result = (success, msg)
+        else:
+            st.session_state.check_result = (False, "首次加载：无专利数据或邮箱配置，未执行检查")
+    
+    threading.Thread(target=trigger_check, daemon=True).start()
+    st.session_state.is_first_load = False  # 仅首次加载触发一次（如果需要每次刷新都触发，可删除此句）
+
 
 # 侧边栏 - 设置
 with st.sidebar:
@@ -316,6 +407,7 @@ with st.sidebar:
     # 自动刷新设置
     st.subheader("自动刷新")
     st.session_state.auto_refresh = st.checkbox("启用页面自动刷新", value=True)
+    st.write(f"自动刷新状态：{st.session_state.auto_refresh}")
     # 缩短自动刷新间隔：支持1-60分钟（1小时），默认10分钟
     refresh_interval = st.slider(
         "刷新间隔（分钟）", 
@@ -324,7 +416,7 @@ with st.sidebar:
         value=2,      # 默认10分钟
         help="缩短了最大刷新间隔，现在最大为60分钟"
     )
-    
+    setup_auto_refresh(refresh_interval)
     # 显示上次邮件发送时间
     if st.session_state.last_email_sent_time:
         st.info(f"上次邮件发送时间：{st.session_state.last_email_sent_time:%Y-%m-%d %H:%M}")
@@ -368,6 +460,16 @@ with st.sidebar:
             else:
                 st.info("即将检查并发送提醒邮件...")
 
+    st.divider()
+    st.markdown("----") 
+    st.write("开发者：钟工")
+    st.info(f"总检查次数：{st.session_state.check_count}")
+    if st.session_state.last_check_time:
+        st.info(f"上次检查时间：{st.session_state.last_check_time:%Y-%m-%d %H:%M}")
+    # 显示本次检查结果（如果有）
+    if 'check_result' in st.session_state:
+        success, msg = st.session_state.check_result
+        st.info(f"本次检查结果：{msg}")
 # 上传Excel文件
 st.subheader("上传专利数据")
 uploaded_file = st.file_uploader(
@@ -532,7 +634,7 @@ if st.session_state.email_config["email_enabled"] and not st.session_state.is_fi
 
 # 触发检查
 if st.button("开始检查"):
-    check_and_send(st.session_state.patent_data)
+    run_scheduled_task()
 # 标记为非首次加载
 if st.session_state.is_first_load:
     st.session_state.is_first_load = False
