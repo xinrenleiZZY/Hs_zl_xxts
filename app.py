@@ -14,6 +14,19 @@ import os  # 用于文件操作
 import time as time_module
 import threading
 
+if 'email_config' not in st.session_state:
+    st.session_state.email_sending = False  # 邮件发送状态
+# 邮箱配置会话状态
+if 'email_config' not in st.session_state:
+    st.session_state.email_config = {
+        "sender_email": "",
+        "sender_password": "",
+        "smtp_server": "smtp.qq.com",
+        "smtp_port": 587,
+        "receiver_email": "",
+        "email_enabled": False
+    }
+
 # 页面配置
 st.set_page_config(
     page_title="专利缴费管理系统",
@@ -43,18 +56,7 @@ if 'is_first_load' not in st.session_state:
     st.session_state.is_first_load = True  # 标记首次加载
 if 'next_scheduled_send' not in st.session_state:
     st.session_state.next_scheduled_send = None
-if 'email_config' not in st.session_state:
-    st.session_state.email_sending = False  # 邮件发送状态
-# 邮箱配置会话状态
-if 'email_config' not in st.session_state:
-    st.session_state.email_config = {
-        "sender_email": "",
-        "sender_password": "",
-        "smtp_server": "smtp.qq.com",
-        "smtp_port": 587,
-        "receiver_email": "",
-        "email_enabled": False
-    }
+
 
 if 'check_count' not in st.session_state:
     st.session_state.check_count = 0  # 总检查次数
@@ -105,7 +107,7 @@ def load_persistent_data():
                         st.session_state.next_scheduled_send = data['next_scheduled_send']
                     else:
                         st.warning("计划发送时间格式无效，已重置")
-                        st.session_state.next_scheduled_send = datetime.now() + timedelta(minutes=144)
+                        st.session_state.next_scheduled_send = datetime.now() + timedelta(minutes=4)
                 # 恢复检查次数
                 if 'check_count' in data:
                     st.session_state.check_count = data['check_count']
@@ -229,7 +231,7 @@ def send_email_reminder(sender_email, sender_password, smtp_server, smtp_port,
     except Exception as e:
         return False, f"发送失败：{str(e)}"
 
-# 自动发送提醒邮件的函数（添加了144 min 1day间隔控制）
+# 自动发送提醒邮件的函数（添加了4 min 1day间隔控制）
 def auto_send_reminders(patent_data):
     if patent_data is None:
         return False, "无专利数据可检查"
@@ -243,8 +245,8 @@ def auto_send_reminders(patent_data):
     now = datetime.now()
 
     if not st.session_state.next_scheduled_send or st.session_state.next_scheduled_send <= now:
-        # 计算下次发送时间（当前时间 + 144 min 1day）
-        st.session_state.next_scheduled_send = now + timedelta(minutes=144)
+        # 计算下次发送时间（当前时间 + 4 min 1day）
+        st.session_state.next_scheduled_send = now + timedelta(minutes=4)
         save_persistent_data()  # 保存计划时间
     else:
         # 未到计划时间
@@ -252,15 +254,15 @@ def auto_send_reminders(patent_data):
         remaining_minutes = int(remaining.total_seconds() // 60)
         return False, f"未到发送时间，剩余 {remaining_minutes} 分钟"
     
-    # 添加144 min 1day发送间隔控制
+    # 添加4 min 1day发送间隔控制
     now = datetime.now()
 
     last_sent = st.session_state.last_email_sent_time
     if last_sent is not None:
         time_diff = now - last_sent
-        if time_diff < timedelta(minutes=144):
-            remaining_hours = int((timedelta(minutes=144) - time_diff).total_seconds() // 3600)
-            return False, f"距离上次发送不足144 min 1day，剩余{remaining_hours}分钟"
+        if time_diff < timedelta(minutes=4):
+            remaining_hours = int((timedelta(minutes=4) - time_diff).total_seconds() // 3600)
+            return False, f"距离上次发送不足4 min 1day，剩余{remaining_hours}分钟"
         
     # 处理数据
     df = st.session_state.patent_data.copy()
@@ -291,7 +293,7 @@ def auto_send_reminders(patent_data):
     if success:
         st.session_state.last_email_sent_time = now
         # 确保下次发送时间正确更新
-        st.session_state.next_scheduled_send = now + timedelta(minutes=144)
+        st.session_state.next_scheduled_send = now + timedelta(minutes=4)
         save_persistent_data()
         
     return success, msg
@@ -382,17 +384,19 @@ load_persistent_data()
 
 if st.session_state.is_first_load:
     st.success("欢迎使用专利缴费管理系统！首次加载完成")
-    # 首次加载或每次访问时触发检查
-    def trigger_check():
-        time.sleep(2)  # 延迟2秒，确保页面加载完成
-        if 'patent_data' not in st.session_state and 'email_config' in st.session_state:
-            success, msg = run_scheduled_task()
-            st.session_state.check_result = (success, msg)
-        else:
-            st.session_state.check_result = (False, "首次加载：无专利数据或邮箱配置，未执行检查")
     
-    threading.Thread(target=trigger_check, daemon=True).start()
-    st.session_state.is_first_load = False  # 仅首次加载触发一次（如果需要每次刷新都触发，可删除此句）
+    # 直接在主线程执行检查（移除子线程）
+    # 无需time.sleep，避免阻塞页面；若需延迟，用Streamlit的rerun机制
+    if st.session_state.patent_data is not None and st.session_state.email_config.get("email_enabled"):
+        # 执行检查任务
+        success, msg = run_scheduled_task()
+        st.session_state.check_result = (success, msg)
+        st.info(f"首次检查结果：{msg}")  # 可选：显示检查结果
+    else:
+        st.session_state.check_result = (False, "首次加载：无专利数据或邮箱未启用，未执行检查")
+    
+    st.session_state.is_first_load = False  # 标记为已加载
+    save_persistent_data()  # 保存状态
 
 
 # 侧边栏 - 设置
@@ -421,7 +425,7 @@ with st.sidebar:
     # 显示上次邮件发送时间
     if st.session_state.last_email_sent_time:
         st.info(f"上次邮件发送时间：{st.session_state.last_email_sent_time:%Y-%m-%d %H:%M}")
-        next_send_time = st.session_state.last_email_sent_time + timedelta(minutes=144)
+        next_send_time = st.session_state.last_email_sent_time + timedelta(minutes=4)
         if datetime.now() < next_send_time:
             st.info(f"下次邮件发送时间：{next_send_time:%Y-%m-%d %H:%M}")
     
@@ -618,8 +622,8 @@ if st.session_state.auto_refresh:
                 st.info("邮件提醒功能已启用，将在首次自动刷新时检查发送")
             else:
                 time_diff = now - last_sent
-                if time_diff < timedelta(minutes=144):
-                    remaining_seconds = (timedelta(minutes=144) - time_diff).total_seconds()
+                if time_diff < timedelta(minutes=4):
+                    remaining_seconds = (timedelta(minutes=4) - time_diff).total_seconds()
                     remaining_hours = int(remaining_seconds // 3600)
                     remaining_minutes = int((remaining_seconds % 3600) // 60)
                     st.info(f"邮件提醒功能已启用，距离下次发送还有{remaining_hours}小时{remaining_minutes}分钟")
@@ -631,7 +635,7 @@ if st.session_state.email_config["email_enabled"] and not st.session_state.is_fi
     def check_and_send(patent_data):
         time_module.sleep(5)  # 延迟5秒，确保页面加载完成
         auto_send_reminders(patent_data)
-    threading.Thread(target=check_and_send, daemon=True).start()
+    threading.Thread(target=check_and_send, args=(st.session_state.patent_data,), daemon=True).start()
 
 # 触发检查
 if st.button("开始检查"):
